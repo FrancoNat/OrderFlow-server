@@ -66,3 +66,72 @@ exports.createOrder = async (req, res) => {
     res.status(500).json({ error: 'Error creando orden' })
   }
 }
+
+exports.getMyOrders = async (req, res) => {
+  try {
+    const userId = req.user.id
+
+    const orders = await prisma.order.findMany({
+      where: { userId },
+      include: {
+        items: {
+          include: { product: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    res.json(orders)
+  } catch (error) {
+    console.error('ERROR GET MY ORDERS:', error)
+    res.status(500).json({ error: 'Error obteniendo órdenes' })
+  }
+}
+
+exports.getAllOrders = async (req, res) => {
+  try {
+    const { status } = req.query
+
+    if (status && !['PENDING', 'PAID', 'CANCELLED', 'DONE'].includes(status)) {
+      return res.status(400).json({ error: 'Estado inválido' })
+    }
+
+    const orders = await prisma.order.findMany({
+      where: status ? { status } : undefined,
+      include: {
+        items: {
+          include: { product: true }
+        },
+        user: true
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    res.json(orders)
+  } catch (error) {
+    console.error('ERROR GET ALL ORDERS:', error)
+    res.status(500).json({ error: 'Error obteniendo órdenes' })
+  }
+}
+
+exports.updateOrderStatus = async (req, res) => {
+  try {
+    const { id } = req.params
+    const { status } = req.body
+
+    if (!status || !['PENDING', 'PAID', 'CANCELLED', 'DONE'].includes(status)) {
+      return res.status(400).json({ error: 'Estado inválido' })
+    }
+
+    const order = await prisma.order.update({
+      where: { id },
+      data: { status },
+      include: { items: true }
+    })
+
+    res.json(order)
+  } catch (error) {
+    console.error('ERROR UPDATE ORDER STATUS:', error)
+    res.status(500).json({ error: 'Error actualizando estado' })
+  }
+}
