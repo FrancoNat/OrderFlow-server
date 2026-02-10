@@ -372,6 +372,58 @@
           "raw": "{\n  \"status\": \"PAID\"\n}"
         }
       }
+    },
+    {
+      "name": "Orders - Get (All, Admin, Include Deleted)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders?includeDeleted=true",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ],
+          "query": [
+            {
+              "key": "includeDeleted",
+              "value": "true"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Orders - Restore (Admin)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders/:id/restore",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders",
+            ":id",
+            "restore"
+          ]
+        }
+      }
     }
   ]
 }

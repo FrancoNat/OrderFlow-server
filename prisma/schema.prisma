@@ -52,6 +52,7 @@ model Order {
   total     Float
   items     OrderItem[]
   createdAt DateTime    @default(now())
+  deletedAt DateTime?
 }
 
 model OrderItem {
@@ -72,7 +73,7 @@ enum Role {
 enum OrderStatus {
   PENDING
   PAID
-  DONE
+  SHIPPED
   CANCELLED
 }
 

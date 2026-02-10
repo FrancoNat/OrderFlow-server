@@ -7,7 +7,10 @@ const checkout = async (req, res) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
-      return res.status(401).json({ error: "Usuario no autenticado" });
+      return res.status(401).json({
+        error: "UNAUTHENTICATED",
+        message: "Usuario no autenticado"
+      });
     }
 
     // 1️⃣ Buscar carrito con productos
@@ -21,7 +24,10 @@ const checkout = async (req, res) => {
     });
 
     if (!cart || cart.items.length === 0) {
-      return res.status(400).json({ error: "El carrito está vacío" });
+      return res.status(400).json({
+        error: "CART_EMPTY",
+        message: "El carrito está vacío"
+      });
     }
 
     let total = 0;
@@ -30,12 +36,14 @@ const checkout = async (req, res) => {
     for (const item of cart.items) {
       if (!item.product) {
         return res.status(400).json({
-          error: "Producto no encontrado en el carrito"
+          error: "PRODUCT_NOT_FOUND",
+          message: "Producto no encontrado en el carrito"
         });
       }
       if (item.product.stock < item.quantity) {
         return res.status(400).json({
-          error: `Stock insuficiente para ${item.product.name}`
+          error: "STOCK_INSUFFICIENT",
+          message: `No hay stock suficiente para ${item.product.name}`
         });
       }
 
@@ -43,15 +51,14 @@ const checkout = async (req, res) => {
     }
 
     // 3️⃣ Transacción (todo o nada)
-    const order = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // crear orden
       const newOrder = await tx.order.create({
         data: {
           userId,
           total,
           status: "PENDING"
-        },
-        include: { items: true }
+        }
       });
 
       // crear items + descontar stock
@@ -65,34 +72,53 @@ const checkout = async (req, res) => {
           }
         });
 
-        await tx.product.update({
-          where: { id: item.productId },
+        const updated = await tx.product.updateMany({
+          where: {
+            id: item.productId,
+            stock: { gte: item.quantity }
+          },
           data: {
-            stock: {
-              decrement: item.quantity
-            }
+            stock: { decrement: item.quantity }
           }
         });
+
+        if (updated.count === 0) {
+          throw new Error(`STOCK_INSUFFICIENT:${item.product.name}`);
+        }
       }
+
+      const orderItems = await tx.orderItem.findMany({
+        where: { orderId: newOrder.id },
+        include: { product: true }
+      });
 
       // vaciar carrito
       await tx.cartItem.deleteMany({
         where: { cartId: cart.id }
       });
 
-      return newOrder;
+      return { order: newOrder, items: orderItems };
     });
 
     res.json({
       message: "Compra realizada con éxito",
-      order
+      order: result.order,
+      items: result.items,
+      total: result.order.total
     });
 
   } catch (error) {
     console.error("CHECKOUT ERROR:", error);
+    if (typeof error.message === "string" && error.message.startsWith("STOCK_INSUFFICIENT:")) {
+      const name = error.message.split(":")[1] || "producto";
+      return res.status(400).json({
+        error: "STOCK_INSUFFICIENT",
+        message: `No hay stock suficiente para ${name}`
+      });
+    }
     res.status(500).json({
-      error: "Error al procesar el checkout",
-      detail: error.message
+      error: "INTERNAL_ERROR",
+      message: "Error al procesar el checkout"
     });
   }
 };

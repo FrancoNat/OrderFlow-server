@@ -6,7 +6,10 @@ exports.createOrder = async (req, res) => {
     const { items } = req.body
 
     if (!items || items.length === 0) {
-      return res.status(400).json({ error: 'La orden debe tener productos' })
+      return res.status(400).json({
+        error: 'ITEMS_REQUIRED',
+        message: 'La orden debe tener productos'
+      })
     }
 
     let total = 0
@@ -18,12 +21,16 @@ exports.createOrder = async (req, res) => {
       })
 
       if (!product) {
-        return res.status(404).json({ error: 'Producto no encontrado' })
+        return res.status(404).json({
+          error: 'PRODUCT_NOT_FOUND',
+          message: 'Producto no encontrado'
+        })
       }
 
       if (product.stock < item.quantity) {
         return res.status(400).json({
-          error: `Stock insuficiente para ${product.name}`
+          error: 'STOCK_INSUFFICIENT',
+          message: `No hay stock suficiente para ${product.name}`
         })
       }
 
@@ -49,12 +56,19 @@ exports.createOrder = async (req, res) => {
       })
 
       for (const item of items) {
-        await tx.product.update({
-          where: { id: item.productId },
+        const updated = await tx.product.updateMany({
+          where: {
+            id: item.productId,
+            stock: { gte: item.quantity }
+          },
           data: {
             stock: { decrement: item.quantity }
           }
         })
+
+        if (updated.count === 0) {
+          throw new Error('STOCK_INSUFFICIENT')
+        }
       }
 
       return newOrder
@@ -63,7 +77,13 @@ exports.createOrder = async (req, res) => {
     res.status(201).json(order)
   } catch (error) {
     console.error('ERROR CREATE ORDER:', error)
-    res.status(500).json({ error: 'Error creando orden' })
+    if (error.message === 'STOCK_INSUFFICIENT') {
+      return res.status(400).json({
+        error: 'STOCK_INSUFFICIENT',
+        message: 'No hay stock suficiente para uno o más productos'
+      })
+    }
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Error creando orden' })
   }
 }
 
@@ -72,7 +92,7 @@ exports.getMyOrders = async (req, res) => {
     const userId = req.user.id
 
     const orders = await prisma.order.findMany({
-      where: { userId },
+      where: { userId, deletedAt: null },
       include: {
         items: {
           include: { product: true }
@@ -84,20 +104,29 @@ exports.getMyOrders = async (req, res) => {
     res.json(orders)
   } catch (error) {
     console.error('ERROR GET MY ORDERS:', error)
-    res.status(500).json({ error: 'Error obteniendo órdenes' })
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Error obteniendo órdenes' })
   }
 }
 
 exports.getAllOrders = async (req, res) => {
   try {
-    const { status } = req.query
+    const { status, includeDeleted } = req.query
 
-    if (status && !['PENDING', 'PAID', 'CANCELLED', 'DONE'].includes(status)) {
-      return res.status(400).json({ error: 'Estado inválido' })
+    if (status && !['PENDING', 'PAID', 'CANCELLED', 'SHIPPED'].includes(status)) {
+      return res.status(400).json({ error: 'INVALID_STATUS', message: 'Estado inválido' })
     }
 
+    const includeDeletedBool =
+      includeDeleted === 'true' || includeDeleted === '1'
+
     const orders = await prisma.order.findMany({
-      where: status ? { status } : undefined,
+      where: includeDeletedBool
+        ? status
+          ? { status }
+          : {}
+        : status
+        ? { status, deletedAt: null }
+        : { deletedAt: null },
       include: {
         items: {
           include: { product: true }
@@ -110,7 +139,7 @@ exports.getAllOrders = async (req, res) => {
     res.json(orders)
   } catch (error) {
     console.error('ERROR GET ALL ORDERS:', error)
-    res.status(500).json({ error: 'Error obteniendo órdenes' })
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Error obteniendo órdenes' })
   }
 }
 
@@ -119,8 +148,36 @@ exports.updateOrderStatus = async (req, res) => {
     const { id } = req.params
     const { status } = req.body
 
-    if (!status || !['PENDING', 'PAID', 'CANCELLED', 'DONE'].includes(status)) {
-      return res.status(400).json({ error: 'Estado inválido' })
+    if (!status || !['PENDING', 'PAID', 'CANCELLED', 'SHIPPED'].includes(status)) {
+      return res.status(400).json({ error: 'INVALID_STATUS', message: 'Estado inválido' })
+    }
+
+    const current = await prisma.order.findUnique({
+      where: { id }
+    })
+
+    if (!current || current.deletedAt) {
+      return res.status(404).json({ error: 'ORDER_NOT_FOUND', message: 'Orden no encontrada' })
+    }
+
+    // Reglas simples de transición
+    if (current.status === 'CANCELLED') {
+      return res.status(400).json({
+        error: 'ORDER_STATUS_LOCKED',
+        message: 'No se puede modificar una orden cancelada'
+      })
+    }
+    if (current.status === 'SHIPPED') {
+      return res.status(400).json({
+        error: 'ORDER_STATUS_LOCKED',
+        message: 'No se puede modificar una orden enviada'
+      })
+    }
+    if (current.status === 'PENDING' && status === 'SHIPPED') {
+      return res.status(400).json({
+        error: 'INVALID_STATUS_TRANSITION',
+        message: 'No se puede enviar una orden pendiente'
+      })
     }
 
     const order = await prisma.order.update({
@@ -132,6 +189,38 @@ exports.updateOrderStatus = async (req, res) => {
     res.json(order)
   } catch (error) {
     console.error('ERROR UPDATE ORDER STATUS:', error)
-    res.status(500).json({ error: 'Error actualizando estado' })
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Error actualizando estado' })
+  }
+}
+
+exports.softDeleteOrder = async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const order = await prisma.order.update({
+      where: { id },
+      data: { deletedAt: new Date() }
+    })
+
+    res.json({ message: 'Orden eliminada (soft delete)', order })
+  } catch (error) {
+    console.error('ERROR SOFT DELETE ORDER:', error)
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Error eliminando orden' })
+  }
+}
+
+exports.restoreOrder = async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const order = await prisma.order.update({
+      where: { id },
+      data: { deletedAt: null }
+    })
+
+    res.json({ message: 'Orden restaurada', order })
+  } catch (error) {
+    console.error('ERROR RESTORE ORDER:', error)
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Error restaurando orden' })
   }
 }

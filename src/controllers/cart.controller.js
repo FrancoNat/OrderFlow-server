@@ -30,7 +30,10 @@ const getCart = async (req, res) => {
 
     res.json(cart)
   } catch (error) {
-    res.status(500).json({ error: "Error obteniendo el carrito" })
+    res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Error obteniendo el carrito"
+    })
   }
 }
 
@@ -43,7 +46,10 @@ const addItemToCart = async (req, res) => {
     const { productId, quantity } = req.body
 
     if (!productId || !quantity) {
-      return res.status(400).json({ error: "Faltan datos" })
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "Faltan datos"
+      })
     }
 
     // buscar o crear carrito
@@ -86,7 +92,10 @@ const addItemToCart = async (req, res) => {
 
     res.json({ message: "Producto agregado al carrito" })
   } catch (error) {
-    res.status(500).json({ error: "Error agregando producto" })
+    res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Error agregando producto"
+    })
   }
 }
 
@@ -99,7 +108,10 @@ const removeItemFromCart = async (req, res) => {
     const { productId } = req.body
 
     if (!productId) {
-      return res.status(400).json({ error: "Falta productId" })
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "Falta productId"
+      })
     }
 
     const cart = await prisma.cart.findUnique({
@@ -107,7 +119,10 @@ const removeItemFromCart = async (req, res) => {
     })
 
     if (!cart) {
-      return res.status(404).json({ error: "Carrito no encontrado" })
+      return res.status(404).json({
+        error: "CART_NOT_FOUND",
+        message: "Carrito no encontrado"
+      })
     }
 
     await prisma.cartItem.deleteMany({
@@ -119,7 +134,10 @@ const removeItemFromCart = async (req, res) => {
 
     res.json({ message: "Item eliminado del carrito" })
   } catch (error) {
-    res.status(500).json({ error: "Error eliminando item" })
+    res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Error eliminando item"
+    })
   }
 }
 
@@ -135,7 +153,10 @@ const clearCart = async (req, res) => {
     })
 
     if (!cart) {
-      return res.status(404).json({ error: "Carrito no encontrado" })
+      return res.status(404).json({
+        error: "CART_NOT_FOUND",
+        message: "Carrito no encontrado"
+      })
     }
 
     await prisma.cartItem.deleteMany({
@@ -144,7 +165,10 @@ const clearCart = async (req, res) => {
 
     res.json({ message: "Carrito vaciado" })
   } catch (error) {
-    res.status(500).json({ error: "Error vaciando carrito" })
+    res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Error vaciando carrito"
+    })
   }
 }
 
